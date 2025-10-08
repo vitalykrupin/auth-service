@@ -53,220 +53,10 @@ func TestNewStorage_DatabaseStorage(t *testing.T) {
 		if !ok {
 			t.Error("Expected DB when DBDSN is provided")
 		}
-		// Don't call CloseStorage as it might panic with nil pool
 	}
 }
 
-func TestNewStorage_FileStorageWithEmptyPath(t *testing.T) {
-	conf := &config.Config{
-		FileStorePath: "",
-		DBDSN:         "",
-	}
-
-	_, err := NewStorage(conf)
-	if err == nil {
-		t.Error("Expected error for empty file path")
-	}
-
-	// Don't call CloseStorage on failed storage creation
-}
-
-func TestNewStorage_FileStorageWithInvalidPath(t *testing.T) {
-	// Use a path that doesn't exist and can't be created
-	conf := &config.Config{
-		FileStorePath: "/invalid/path/that/does/not/exist/test.json",
-		DBDSN:         "",
-	}
-
-	_, err := NewStorage(conf)
-	if err == nil {
-		t.Error("Expected error for invalid file path")
-	}
-
-	// Don't call CloseStorage on failed storage creation
-}
-
-func TestStorage_InterfaceCompliance(t *testing.T) {
-	conf := &config.Config{
-		FileStorePath: filepath.Join(t.TempDir(), "test.json"),
-		DBDSN:         "",
-	}
-
-	store, err := NewStorage(conf)
-	if err != nil {
-		t.Fatalf("Expected no error, got %v", err)
-	}
-	// Close before TempDir cleanup on Windows to release file handles
-	defer func() {
-		_ = store.CloseStorage(context.Background())
-	}()
-
-	// Test that the returned storage implements the Storage interface
-	var _ Storage = store
-}
-
-func TestStorage_FileStorageOperations(t *testing.T) {
-	conf := &config.Config{
-		FileStorePath: filepath.Join(t.TempDir(), "test.json"),
-		DBDSN:         "",
-	}
-
-	store, err := NewStorage(conf)
-	if err != nil {
-		t.Fatalf("Expected no error, got %v", err)
-	}
-	defer func() {
-		_ = store.CloseStorage(context.Background())
-	}()
-
-	ctx := context.Background()
-
-	// Test Add operation
-	batch := map[Alias]OriginalURL{
-		"test123": "https://example.com",
-		"test456": "https://google.com",
-	}
-
-	err = store.Add(ctx, batch)
-	if err != nil {
-		t.Fatalf("Expected no error on Add, got %v", err)
-	}
-
-	// Test GetURL operation
-	url, err := store.GetURL(ctx, "test123")
-	if err != nil {
-		t.Fatalf("Expected no error on GetURL, got %v", err)
-	}
-	if url != "https://example.com" {
-		t.Errorf("Expected URL 'https://example.com', got '%s'", url)
-	}
-
-	// Test GetAlias operation
-	alias, err := store.GetAlias(ctx, "https://example.com")
-	if err != nil {
-		t.Fatalf("Expected no error on GetAlias, got %v", err)
-	}
-	if alias != "test123" {
-		t.Errorf("Expected alias 'test123', got '%s'", alias)
-	}
-
-	// Test GetURL for non-existent alias
-	_, err = store.GetURL(ctx, "nonexistent")
-	if err == nil {
-		t.Error("Expected error for non-existent alias")
-	}
-
-	// Test GetAlias for non-existent URL
-	_, err = store.GetAlias(ctx, "https://nonexistent.com")
-	if err == nil {
-		t.Error("Expected error for non-existent URL")
-	}
-}
-
-func TestStorage_FileStorageUserOperations(t *testing.T) {
-	conf := &config.Config{
-		FileStorePath: filepath.Join(t.TempDir(), "test.json"),
-		DBDSN:         "",
-	}
-
-	store, err := NewStorage(conf)
-	if err != nil {
-		t.Fatalf("Expected no error, got %v", err)
-	}
-	defer func() {
-		_ = store.CloseStorage(context.Background())
-	}()
-
-	ctx := context.Background()
-
-	// Test GetUserURLs - should return error for file storage
-	_, err = store.GetUserURLs(ctx, "user123")
-	if err == nil {
-		t.Error("Expected error for GetUserURLs in file storage")
-	}
-
-	// Test DeleteUserURLs - should return error for file storage
-	err = store.DeleteUserURLs(ctx, "user123", []string{"url1", "url2"})
-	if err == nil {
-		t.Error("Expected error for DeleteUserURLs in file storage")
-	}
-}
-
-func TestStorage_FileStoragePing(t *testing.T) {
-	conf := &config.Config{
-		FileStorePath: filepath.Join(t.TempDir(), "test.json"),
-		DBDSN:         "",
-	}
-
-	store, err := NewStorage(conf)
-	if err != nil {
-		t.Fatalf("Expected no error, got %v", err)
-	}
-	defer func() {
-		_ = store.CloseStorage(context.Background())
-	}()
-
-	ctx := context.Background()
-
-	// Test PingStorage - should not return error for file storage
-	err = store.PingStorage(ctx)
-	if err != nil {
-		t.Errorf("Expected no error on PingStorage, got %v", err)
-	}
-}
-
-func TestStorage_FileStoragePersistence(t *testing.T) {
-	tempDir := t.TempDir()
-	filePath := filepath.Join(tempDir, "test.json")
-
-	// First, create storage and add some data
-	conf1 := &config.Config{
-		FileStorePath: filePath,
-		DBDSN:         "",
-	}
-
-	store1, err := NewStorage(conf1)
-	if err != nil {
-		t.Fatalf("Expected no error, got %v", err)
-	}
-
-	ctx := context.Background()
-	batch := map[Alias]OriginalURL{
-		"persist123": "https://persistent.com",
-	}
-
-	err = store1.Add(ctx, batch)
-	if err != nil {
-		t.Fatalf("Expected no error on Add, got %v", err)
-	}
-
-	_ = store1.CloseStorage(ctx)
-
-	// Now create a new storage instance and check if data persists
-	conf2 := &config.Config{
-		FileStorePath: filePath,
-		DBDSN:         "",
-	}
-
-	store2, err := NewStorage(conf2)
-	if err != nil {
-		t.Fatalf("Expected no error on second creation, got %v", err)
-	}
-	defer func() {
-		_ = store2.CloseStorage(ctx)
-	}()
-
-	// Check if the data persisted
-	url, err := store2.GetURL(ctx, "persist123")
-	if err != nil {
-		t.Fatalf("Expected no error on GetURL after persistence, got %v", err)
-	}
-	if url != "https://persistent.com" {
-		t.Errorf("Expected URL 'https://persistent.com', got '%s'", url)
-	}
-}
-
-func TestStorage_FileStorageClose(t *testing.T) {
+func TestFileStorage_UserOperations(t *testing.T) {
 	conf := &config.Config{
 		FileStorePath: filepath.Join(t.TempDir(), "test.json"),
 		DBDSN:         "",
@@ -278,20 +68,37 @@ func TestStorage_FileStorageClose(t *testing.T) {
 	}
 
 	ctx := context.Background()
+	defer store.CloseStorage(ctx)
 
-	// Test CloseStorage - should not return error
-	err = store.CloseStorage(ctx)
-	if err != nil {
-		t.Errorf("Expected no error on CloseStorage, got %v", err)
+	// Test CreateUser
+	user := &User{
+		ID:       1,
+		Login:    "testuser",
+		Password: "hashedpassword",
+		UserID:   "user123",
 	}
 
-	// Test CloseStorage again - might return error for already closed file
-	// This is expected behavior
-	_ = store.CloseStorage(ctx)
-	// We don't check for specific error as it depends on implementation
+	err = store.CreateUser(ctx, user)
+	if err != nil {
+		t.Fatalf("Expected no error creating user, got %v", err)
+	}
+
+	// Test GetUserByLogin
+	retrievedUser, err := store.GetUserByLogin(ctx, "testuser")
+	if err != nil {
+		t.Fatalf("Expected no error getting user, got %v", err)
+	}
+
+	if retrievedUser.Login != "testuser" {
+		t.Errorf("Expected login 'testuser', got %s", retrievedUser.Login)
+	}
+
+	if retrievedUser.UserID != "user123" {
+		t.Errorf("Expected UserID 'user123', got %s", retrievedUser.UserID)
+	}
 }
 
-func TestStorage_FileStorageEmptyBatch(t *testing.T) {
+func TestFileStorage_ProfileOperations(t *testing.T) {
 	conf := &config.Config{
 		FileStorePath: filepath.Join(t.TempDir(), "test.json"),
 		DBDSN:         "",
@@ -301,16 +108,68 @@ func TestStorage_FileStorageEmptyBatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
-	defer func() {
-		_ = store.CloseStorage(context.Background())
-	}()
 
 	ctx := context.Background()
+	defer store.CloseStorage(ctx)
 
-	// Test Add with empty batch
-	batch := map[Alias]OriginalURL{}
-	err = store.Add(ctx, batch)
+	// Test SetUserProfile
+	err = store.SetUserProfile(ctx, "user123", "test@example.com")
 	if err != nil {
-		t.Errorf("Expected no error on Add with empty batch, got %v", err)
+		t.Fatalf("Expected no error setting profile, got %v", err)
+	}
+
+	// Test GetUserProfile
+	email, err := store.GetUserProfile(ctx, "user123")
+	if err != nil {
+		t.Fatalf("Expected no error getting profile, got %v", err)
+	}
+
+	if email != "test@example.com" {
+		t.Errorf("Expected email 'test@example.com', got %s", email)
+	}
+}
+
+func TestFileStorage_RefreshTokenOperations(t *testing.T) {
+	conf := &config.Config{
+		FileStorePath: filepath.Join(t.TempDir(), "test.json"),
+		DBDSN:         "",
+	}
+
+	store, err := NewStorage(conf)
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	ctx := context.Background()
+	defer store.CloseStorage(ctx)
+
+	// Test CreateRefreshToken
+	token := "refresh_token_123"
+	userID := "user123"
+	expiresAt := store.(*FileStorage).refresh["test"].ExpiresAt // This will be zero time
+
+	err = store.CreateRefreshToken(ctx, token, userID, expiresAt)
+	if err != nil {
+		t.Fatalf("Expected no error creating refresh token, got %v", err)
+	}
+
+	// Test GetRefreshToken
+	retrievedUserID, _, revoked, err := store.GetRefreshToken(ctx, token)
+	if err != nil {
+		t.Fatalf("Expected no error getting refresh token, got %v", err)
+	}
+
+	if retrievedUserID != userID {
+		t.Errorf("Expected UserID %s, got %s", userID, retrievedUserID)
+	}
+
+	if revoked {
+		t.Error("Expected token to not be revoked")
+	}
+
+	// Test RevokeRefreshToken
+	err = store.RevokeRefreshToken(ctx, token)
+	if err != nil {
+		t.Fatalf("Expected no error revoking refresh token, got %v", err)
 	}
 }

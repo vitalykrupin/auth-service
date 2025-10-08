@@ -23,6 +23,7 @@
 | SERVER_ADDRESS | Адрес сервера | :8082 |
 | DATABASE_DSN | Строка подключения к БД | "" |
 | JWT_SECRET | Секретный ключ для JWT | "insecure-default-change-me" |
+| REFRESH_TOKEN_TTL | Срок жизни refresh-токена (в часах) | 720 |
 
 ## Запуск
 
@@ -58,3 +59,9 @@ curl -X POST http://localhost:8082/api/auth/login \
 curl -X GET http://localhost:8082/api/auth/profile \
   -H "Authorization: Bearer <token>"
 ```
+
+## Таблицы
+
+- `users` — логины/хеши паролей/идентификаторы
+- `profiles` — email, дата создания
+- `refresh_tokens` — токен, user_id, expires_at, revoked

@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"log"
 	"net/http"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/vitalykrupin/auth-service/cmd/auth/config"
 	"github.com/vitalykrupin/auth-service/internal/app/auth"
 	"github.com/vitalykrupin/auth-service/internal/app/auth/middleware"
@@ -70,6 +72,14 @@ func run(logger *zap.SugaredLogger) error {
 	// Create auth service
 	authSvc := authservice.NewAuthService(store)
 
+	// Refresh token TTL (hours) from env, default 720h
+	refreshTTL := 720 * time.Hour
+	if ttlStr := os.Getenv("REFRESH_TOKEN_TTL"); ttlStr != "" {
+		if ttlParsed, err := time.ParseDuration(ttlStr + "h"); err == nil {
+			refreshTTL = ttlParsed
+		}
+	}
+
 	// Create mux router
 	mux := http.NewServeMux()
 
@@ -77,18 +87,71 @@ func run(logger *zap.SugaredLogger) error {
 	mux.Handle("/api/auth/register", auth.NewRegisterHandler(store, authSvc))
 	mux.Handle("/api/auth/login", auth.NewLoginHandler(store, authSvc))
 
-	// Add a protected route to demonstrate JWT middleware
+	// Protected profile endpoint (returns JSON)
 	mux.Handle("/api/auth/profile", middleware.JWTMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Get user ID from context
 		userID := r.Context().Value(middleware.UserIDKey)
 		if userID == nil {
 			http.Error(w, "User not found in context", http.StatusInternalServerError)
 			return
 		}
-
+		email, _ := store.GetUserProfile(r.Context(), userID.(string))
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("User ID: " + userID.(string)))
+		_, _ = w.Write([]byte("{\"user_id\":\"" + userID.(string) + "\",\"email\":\"" + email + "\"}"))
 	})))
+
+	// Token refresh endpoint
+	mux.Handle("/api/auth/token/refresh", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Only POST requests are allowed!", http.StatusMethodNotAllowed)
+			return
+		}
+		type refreshReq struct {
+			RefreshToken string `json:"refresh_token"`
+		}
+		type refreshResp struct {
+			Token        string `json:"token"`
+			RefreshToken string `json:"refresh_token"`
+		}
+		var req refreshReq
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.RefreshToken == "" {
+			http.Error(w, "Invalid request", http.StatusBadRequest)
+			return
+		}
+		userID, expiresAt, revoked, err := store.GetRefreshToken(r.Context(), req.RefreshToken)
+		if err != nil || revoked || time.Now().After(expiresAt) {
+			http.Error(w, "Invalid refresh token", http.StatusUnauthorized)
+			return
+		}
+		_ = store.RevokeRefreshToken(r.Context(), req.RefreshToken)
+		newRT := uuid.New().String()
+		_ = store.CreateRefreshToken(r.Context(), newRT, userID, time.Now().Add(refreshTTL))
+		token, err := middleware.GenerateToken(userID)
+		if err != nil {
+			http.Error(w, "Failed to generate token", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(refreshResp{Token: token, RefreshToken: newRT})
+	}))
+
+	// Logout (revoke refresh token)
+	mux.Handle("/api/auth/logout", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Only POST requests are allowed!", http.StatusMethodNotAllowed)
+			return
+		}
+		var req struct {
+			RefreshToken string `json:"refresh_token"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.RefreshToken == "" {
+			http.Error(w, "Invalid request", http.StatusBadRequest)
+			return
+		}
+		_ = store.RevokeRefreshToken(r.Context(), req.RefreshToken)
+		w.WriteHeader(http.StatusNoContent)
+	}))
 
 	// Create HTTP server
 	srv := &http.Server{

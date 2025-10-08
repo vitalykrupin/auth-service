@@ -1,5 +1,4 @@
-// Package auth provides HTTP request handlers for authentication
-package auth
+package main
 
 import (
 	"context"
@@ -8,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	authpkg "github.com/vitalykrupin/auth-service/internal/app/auth"
 	"github.com/vitalykrupin/auth-service/internal/app/auth/middleware"
 	"github.com/vitalykrupin/auth-service/internal/app/authservice"
 	"github.com/vitalykrupin/auth-service/internal/app/storage"
@@ -27,7 +27,7 @@ type registerResponse struct {
 
 // RegisterHandler handles POST requests for user registration
 type RegisterHandler struct {
-	*BaseHandler
+	*authpkg.BaseHandler
 	storage     storage.Storage
 	authService *authservice.AuthService
 }
@@ -35,7 +35,7 @@ type RegisterHandler struct {
 // NewRegisterHandler is the constructor for RegisterHandler
 func NewRegisterHandler(store storage.Storage, authService *authservice.AuthService) *RegisterHandler {
 	return &RegisterHandler{
-		BaseHandler: NewBaseHandler(),
+		BaseHandler: authpkg.NewBaseHandler(),
 		storage:     store,
 		authService: authService,
 	}

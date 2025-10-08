@@ -3,15 +3,10 @@ package storage
 
 import (
 	"context"
+	"time"
 
 	"github.com/vitalykrupin/auth-service/cmd/auth/config"
 )
-
-// Alias represents a short URL alias
-type Alias string
-
-// OriginalURL represents an original URL
-type OriginalURL string
 
 // User represents a user in the system
 type User struct {
@@ -21,29 +16,24 @@ type User struct {
 	UserID   string `json:"user_id"`
 }
 
-// Storage interface for data storage operations
+// Storage interface for authentication data storage operations
 type Storage interface {
-	// Add adds new URLs to the storage
-	Add(ctx context.Context, batch map[Alias]OriginalURL) error
-
-	// GetURL retrieves the original URL by alias
-	GetURL(ctx context.Context, alias Alias) (url OriginalURL, err error)
-
-	// GetAlias retrieves the alias for a given URL
-	GetAlias(ctx context.Context, url OriginalURL) (alias Alias, err error)
-
-	// GetUserURLs retrieves all URLs for a user
-	GetUserURLs(ctx context.Context, userID string) (aliasKeysMap AliasKeysMap, err error)
-
-	// DeleteUserURLs marks user URLs as deleted
-	DeleteUserURLs(ctx context.Context, userID string, urls []string) error
-
 	// User methods
 	// GetUserByLogin retrieves a user by login
 	GetUserByLogin(ctx context.Context, login string) (user *User, err error)
 
 	// CreateUser creates a new user
 	CreateUser(ctx context.Context, user *User) error
+
+	// Profile methods
+	SetUserProfile(ctx context.Context, userID, email string) error
+	GetUserProfile(ctx context.Context, userID string) (email string, err error)
+
+	// Refresh tokens
+	CreateRefreshToken(ctx context.Context, token, userID string, expiresAt time.Time) error
+	GetRefreshToken(ctx context.Context, token string) (userID string, expiresAt time.Time, revoked bool, err error)
+	RevokeRefreshToken(ctx context.Context, token string) error
+	DeleteExpiredRefreshTokens(ctx context.Context) error
 
 	// CloseStorage closes the storage connection
 	CloseStorage(ctx context.Context) error

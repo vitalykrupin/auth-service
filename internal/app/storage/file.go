@@ -8,15 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strconv"
+	"time"
 )
-
-// JSONFS represents the JSON structure for file storage
-type JSONFS struct {
-	UUID  string      `json:"id"`
-	Alias Alias       `json:"alias"`
-	URL   OriginalURL `json:"url"`
-}
 
 // JSONUserFS represents the JSON structure for user file storage
 type JSONUserFS struct {
@@ -28,10 +21,14 @@ type JSONUserFS struct {
 
 // FileStorage implements file-based data storage
 type FileStorage struct {
-	SyncMemoryStorage *SyncMemoryStorage
-	file              *os.File
-	usersFile         *os.File
-	users             map[string]*User // login -> user
+	usersFile *os.File
+	users     map[string]*User  // login -> user
+	profiles  map[string]string // userID -> email
+	refresh   map[string]struct {
+		UserID    string
+		ExpiresAt time.Time
+		Revoked   bool
+	}
 }
 
 // NewFileStorage creates a new file storage instance
@@ -41,12 +38,6 @@ func NewFileStorage(FileStoragePath string) (*FileStorage, error) {
 	if FileStoragePath == "" {
 		return nil, fmt.Errorf("no FileStoragePath provided")
 	}
-	syncMem := NewMemoryStorage()
-
-	file, err := os.OpenFile(FileStoragePath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0644)
-	if err != nil {
-		return nil, fmt.Errorf("can not open file: %w", err)
-	}
 
 	// Create users file
 	usersFile, err := os.OpenFile(FileStoragePath+".users", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0644)
@@ -55,14 +46,14 @@ func NewFileStorage(FileStoragePath string) (*FileStorage, error) {
 	}
 
 	fs := FileStorage{
-		SyncMemoryStorage: syncMem,
-		file:              file,
-		usersFile:         usersFile,
-		users:             make(map[string]*User),
-	}
-
-	if err := fs.LoadJSONfromFS(); err != nil && !errors.Is(err, bufio.ErrTooLong) {
-		return nil, fmt.Errorf("can not load JSON from file: %w", err)
+		usersFile: usersFile,
+		users:     make(map[string]*User),
+		profiles:  make(map[string]string),
+		refresh: make(map[string]struct {
+			UserID    string
+			ExpiresAt time.Time
+			Revoked   bool
+		}),
 	}
 
 	if err := fs.loadUsersFromFile(); err != nil {
@@ -97,115 +88,12 @@ func (f *FileStorage) loadUsersFromFile() error {
 	return nil
 }
 
-// LoadJSONfromFS loads JSON data from the file system
-// Returns an error if loading failed
-func (f *FileStorage) LoadJSONfromFS() error {
-	if _, err := f.file.Seek(0, 0); err != nil {
-		return err
-	}
-	scanner := bufio.NewScanner(f.file)
-	data := make(map[Alias]OriginalURL)
-	for scanner.Scan() {
-		var urls JSONFS
-		if err := json.Unmarshal(scanner.Bytes(), &urls); err != nil {
-			return err
-		}
-		data[urls.Alias] = urls.URL
-	}
-	if err := scanner.Err(); err != nil {
-		return err
-	}
-	if err := f.SyncMemoryStorage.Add(data); err != nil {
-		return err
-	}
-	return nil
-}
-
-// Add adds new URLs to the file storage
-// ctx is the request context
-// batch is the map of alias -> OriginalURL to add
-// Returns an error if the addition failed
-func (f *FileStorage) Add(ctx context.Context, batch map[Alias]OriginalURL) error {
-	if err := f.SyncMemoryStorage.Add(batch); err != nil {
-		return err
-	}
-	if f.file == nil {
-		return errors.New("file is not opened")
-	}
-
-	writter := bufio.NewWriter(f.file)
-	for alias, url := range batch {
-		entry := JSONFS{
-			UUID:  strconv.Itoa(len(f.SyncMemoryStorage.MemoryStorage.AliasKeysMap)),
-			Alias: alias,
-			URL:   url,
-		}
-		data, err := json.Marshal(entry)
-		if err != nil {
-			return err
-		}
-		if _, err := writter.Write(data); err != nil {
-			return err
-		}
-		if err := writter.WriteByte('\n'); err != nil {
-			return err
-		}
-	}
-	if err := writter.Flush(); err != nil {
-		return err
-	}
-	return nil
-}
-
-// GetURL retrieves the original URL by alias from file storage
-// ctx is the request context
-// alias is the short URL alias
-// Returns the original URL and an error if retrieval failed
-func (f *FileStorage) GetURL(ctx context.Context, alias Alias) (url OriginalURL, err error) {
-	return f.SyncMemoryStorage.GetURL(alias)
-}
-
-// GetUserURLs retrieves all URLs for a user from file storage
-// ctx is the request context
-// userID is the user identifier
-// Returns a map of alias -> OriginalURL and an error if retrieval failed
-func (f *FileStorage) GetUserURLs(ctx context.Context, userID string) (aliasKeysMap AliasKeysMap, err error) {
-	return nil, fmt.Errorf("can not get user urls from file storage")
-}
-
-// GetAlias retrieves the alias for a given URL from file storage
-// ctx is the request context
-// url is the original URL
-// Returns the alias and an error if retrieval failed
-func (f *FileStorage) GetAlias(ctx context.Context, url OriginalURL) (alias Alias, err error) {
-	return f.SyncMemoryStorage.GetAlias(url)
-}
-
-// DeleteUserURLs deletes user URLs from file storage
-// ctx is the request context
-// userID is the user identifier
-// urls is the list of URLs to delete
-// Returns an error if deletion failed
-func (f *FileStorage) DeleteUserURLs(ctx context.Context, userID string, urls []string) error {
-	return fmt.Errorf("can not delete user urls from file storage")
-}
-
 // CloseStorage closes the file storage
-// ctx is the request context
-// Returns an error if closing failed
 func (f *FileStorage) CloseStorage(ctx context.Context) error {
-	var firstErr error
-	if f.file != nil {
-		if err := f.file.Close(); err != nil && firstErr == nil {
-			firstErr = err
-		}
-	}
 	if f.usersFile != nil {
-		if err := f.usersFile.Close(); err != nil && firstErr == nil {
-			firstErr = err
-		}
+		return f.usersFile.Close()
 	}
-	return firstErr
+	return nil
 }
 
 // PingStorage checks the file storage connection
@@ -264,5 +152,58 @@ func (f *FileStorage) CreateUser(ctx context.Context, user *User) error {
 		return err
 	}
 
+	return nil
+}
+
+// SetUserProfile stores user's email in memory (file-backed persistence not implemented for simplicity)
+func (f *FileStorage) SetUserProfile(ctx context.Context, userID, email string) error {
+	f.profiles[userID] = email
+	return nil
+}
+
+// GetUserProfile returns user's email if set
+func (f *FileStorage) GetUserProfile(ctx context.Context, userID string) (string, error) {
+	if email, ok := f.profiles[userID]; ok {
+		return email, nil
+	}
+	return "", fmt.Errorf("profile not found for user: %s", userID)
+}
+
+// CreateRefreshToken stores refresh token in memory
+func (f *FileStorage) CreateRefreshToken(ctx context.Context, token, userID string, expiresAt time.Time) error {
+	f.refresh[token] = struct {
+		UserID    string
+		ExpiresAt time.Time
+		Revoked   bool
+	}{UserID: userID, ExpiresAt: expiresAt, Revoked: false}
+	return nil
+}
+
+// GetRefreshToken returns token payload
+func (f *FileStorage) GetRefreshToken(ctx context.Context, token string) (string, time.Time, bool, error) {
+	if r, ok := f.refresh[token]; ok {
+		return r.UserID, r.ExpiresAt, r.Revoked, nil
+	}
+	return "", time.Time{}, false, fmt.Errorf("refresh token not found")
+}
+
+// RevokeRefreshToken marks token as revoked
+func (f *FileStorage) RevokeRefreshToken(ctx context.Context, token string) error {
+	if r, ok := f.refresh[token]; ok {
+		r.Revoked = true
+		f.refresh[token] = r
+		return nil
+	}
+	return fmt.Errorf("refresh token not found")
+}
+
+// DeleteExpiredRefreshTokens cleans memory map
+func (f *FileStorage) DeleteExpiredRefreshTokens(ctx context.Context) error {
+	now := time.Now()
+	for k, v := range f.refresh {
+		if now.After(v.ExpiresAt) {
+			delete(f.refresh, k)
+		}
+	}
 	return nil
 }
