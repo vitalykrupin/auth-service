@@ -31,44 +31,6 @@ func NewDB(DBDSN string) (*DB, error) {
 		return nil, err
 	}
 
-	// Create users table if it doesn't exist
-	_, err = conn.Exec(ctx, `
-		CREATE TABLE IF NOT EXISTS users (
-			id SERIAL PRIMARY KEY,
-			login VARCHAR(255) NOT NULL UNIQUE,
-			password VARCHAR(255) NOT NULL,
-			user_id VARCHAR(255) NOT NULL UNIQUE
-		);`)
-	if err != nil {
-		log.Println("Can not create users table")
-		return nil, err
-	}
-
-	// Create profiles table if it doesn't exist
-	_, err = conn.Exec(ctx, `
-        CREATE TABLE IF NOT EXISTS profiles (
-            user_id VARCHAR(255) PRIMARY KEY,
-            email VARCHAR(255) UNIQUE,
-            created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
-        );`)
-	if err != nil {
-		log.Println("Can not create profiles table")
-		return nil, err
-	}
-
-	// Create refresh_tokens table if it doesn't exist
-	_, err = conn.Exec(ctx, `
-        CREATE TABLE IF NOT EXISTS refresh_tokens (
-            token TEXT PRIMARY KEY,
-            user_id VARCHAR(255) NOT NULL,
-            expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
-            revoked BOOLEAN NOT NULL DEFAULT FALSE
-        );`)
-	if err != nil {
-		log.Println("Can not create refresh_tokens table")
-		return nil, err
-	}
-
 	return &DB{conn}, nil
 }
 

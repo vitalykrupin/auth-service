@@ -20,8 +20,9 @@ RUN go mod download
 # Копирование исходного кода
 COPY . .
 
+RUN go mod tidy && go mod download
 # Сборка бинарного файла для сервиса авторизации
-RUN go build -a -installsuffix cgo -o auth-service cmd/auth/main.go
+RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o auth-service ./cmd/auth
 
 # Используем минимальный образ Alpine для запуска приложения
 FROM alpine:latest
@@ -31,6 +32,7 @@ WORKDIR /root/
 
 # Копирование бинарного файла из builder образа
 COPY --from=builder /app/auth-service .
+COPY ./migrations ./migrations
 
 # Создание директории для файлового хранилища
 RUN mkdir -p /tmp
@@ -38,5 +40,11 @@ RUN mkdir -p /tmp
 # Экспонирование порта
 EXPOSE 8081
 
+# Add non-root user
+RUN adduser -D -H appuser && chown -R appuser:appuser /root
+USER appuser
+
 # Команда запуска приложения
+HEALTHCHECK --interval=15s --timeout=3s --start-period=10s --retries=3 CMD wget -qO- http://127.0.0.1:8081/healthz || exit 1
+
 CMD ["./auth-service"]

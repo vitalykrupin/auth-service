@@ -1,0 +1,19 @@
+version: "3.9"
+
+services:
+  auth-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: auth-service:local
+    container_name: auth-service
+    environment:
+      - HTTP_ADDR=0.0.0.0:8081
+      - DB_DSN=${DB_DSN}
+      - JWT_SECRET=${JWT_SECRET}
+      - RUN_MIGRATIONS=${RUN_MIGRATIONS:-false}
+      - MIGRATIONS_PATH=/root/migrations
+    ports:
+      - "8081:8081"
+    restart: unless-stopped
+

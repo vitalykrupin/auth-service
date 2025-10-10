@@ -20,6 +20,8 @@ import (
 	"go.uber.org/zap"
 )
 
+//go:generate echo "migrate hooks are not generated"
+
 const (
 	// ShutdownTimeout is the timeout for graceful server shutdown
 	ShutdownTimeout = 10 * time.Second
@@ -61,6 +63,12 @@ func run(logger *zap.SugaredLogger) error {
 		logger.Errorw("Failed to create storage", "error", err)
 		return err
 	}
+	// Optional: run migrations on startup (build-tagged implementation)
+	if err := applyMigrations(conf, logger); err != nil {
+		logger.Errorw("migrations failed", "error", err)
+		return err
+	}
+
 	defer func() {
 		ctx, cancel := context.WithTimeout(context.Background(), ShutdownTimeout)
 		defer cancel()
@@ -82,6 +90,12 @@ func run(logger *zap.SugaredLogger) error {
 
 	// Create mux router
 	mux := http.NewServeMux()
+
+	// Healthz endpoint
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	})
 
 	// Register routes
 	mux.Handle("/api/auth/register", auth.NewRegisterHandler(store, authSvc))

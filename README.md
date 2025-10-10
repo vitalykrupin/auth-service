@@ -28,6 +28,24 @@
 ## Запуск
 
 ### Локально
+### Docker Compose (внешний PostgreSQL)
+
+1. Создайте `.env` с переменными окружения (или экспортируйте их в окружение):
+
+```
+DB_DSN=postgres://user:password@host:5432/dbname?sslmode=disable
+JWT_SECRET=change-me
+RUN_MIGRATIONS=true
+```
+
+2. Соберите и запустите:
+
+```
+docker compose up --build -d
+```
+
+3. Healthcheck: `GET http://localhost:8081/healthz`
+
 ```bash
 go run cmd/auth/main.go
 ```

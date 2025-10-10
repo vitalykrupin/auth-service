@@ -13,19 +13,22 @@ import (
 
 const (
 	// defaultServerAddress is the default server address
-	defaultServerAddress = "localhost:8080"
+	defaultServerAddress = "0.0.0.0:8081"
 
 	// defaultResponseAddress is the default base URL for responses
-	defaultResponseAddress = "http://localhost:8080"
+	defaultResponseAddress = "http://localhost:8081"
 
 	// defaultDBDSN is the default database connection string
 	defaultDBDSN = ""
+
+	// defaultMigrationsPath is default path to SQL migrations
+	defaultMigrationsPath = "./migrations"
 )
 
 // Config structure for storing application configuration
 type Config struct {
-	// ServerAddress is the server address
-	ServerAddress string `env:"SERVER_ADDRESS"`
+	// ServerAddress is the server address (alias env: HTTP_ADDR)
+	ServerAddress string `env:"HTTP_ADDR"`
 
 	// ResponseAddress is the base URL for responses
 	ResponseAddress string `env:"BASE_URL"`
@@ -34,7 +37,16 @@ type Config struct {
 	FileStorePath string `env:"FILE_STORAGE_PATH"`
 
 	// DBDSN is the database connection string
-	DBDSN string `env:"DATABASE_DSN"`
+	DBDSN string `env:"DB_DSN"`
+
+	// JWTSecret is the secret key for signing JWTs
+	JWTSecret string `env:"JWT_SECRET"`
+
+	// RunMigrations toggles running migrations on startup
+	RunMigrations bool `env:"RUN_MIGRATIONS"`
+
+	// MigrationsPath is the path to migration files
+	MigrationsPath string `env:"MIGRATIONS_PATH"`
 }
 
 // NewConfig creates a new configuration instance with default values
@@ -45,6 +57,7 @@ func NewConfig() *Config {
 		ResponseAddress: defaultResponseAddress,
 		FileStorePath:   filepath.Join(os.TempDir(), "short-url-db.json"),
 		DBDSN:           defaultDBDSN,
+		MigrationsPath:  defaultMigrationsPath,
 	}
 }
 
@@ -52,7 +65,7 @@ func NewConfig() *Config {
 // Returns an error if parsing failed or configuration is invalid
 func (c *Config) ParseFlags() error {
 	// Register command line flags
-	flag.Func("a", "example: '-a localhost:8080'", func(addr string) error {
+	flag.Func("a", "example: '-a 0.0.0.0:8081'", func(addr string) error {
 		c.ServerAddress = addr
 		return nil
 	})
@@ -66,6 +79,10 @@ func (c *Config) ParseFlags() error {
 	})
 	flag.Func("d", "example: '-d postgres://postgres:pwd@localhost:5432/postgres?sslmode=disable'", func(dbAddr string) error {
 		c.DBDSN = dbAddr
+		return nil
+	})
+	flag.Func("migrations", "example: '-migrations ./migrations'", func(p string) error {
+		c.MigrationsPath = p
 		return nil
 	})
 	flag.Parse()
